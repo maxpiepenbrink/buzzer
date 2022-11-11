@@ -57,7 +57,7 @@
         join_btn.addEventListener("click", function (e) {
             this.disabled = true;
 
-            const websocket = new WebSocket("ws://localhost:8080/buzzer?room=555");
+            const websocket = new WebSocket("ws://localhost:8080/buzzer?room=" + roomcode.value);
 
             websocket.onopen = function () {
                 console.log("connection opened");

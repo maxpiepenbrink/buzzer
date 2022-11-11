@@ -8,7 +8,8 @@ use axum::{
     routing::get,
     Router,
 };
-use futures::{SinkExt, StreamExt};
+use futures::{Future, SinkExt, StreamExt};
+use rand::rngs::ThreadRng;
 use tokio::sync::RwLock;
 
 use std::{
@@ -98,34 +99,24 @@ async fn websocket_handler(
         .join(" -- ");
     tracing::debug!("params: {}", stringified_params);
 
-    // let room: Arc<RwLock<Room>> = match params.get("room") {
-    //     Some(room_code) => {
-    //         if room_code.eq("new") {
-    //             // if the query param is "new", create a new room
-    //             create_room(&app_state)
-    //         } else {
-    //             // otherwise assume its a join code and try to find the room
-    //             let code = room_code.parse::<u32>().unwrap_or(0);
-    //             let room_map = app_state.rooms.blocking_read();
-    //             room_map.get(&code).unwrap().clone()
-    //         }
-    //     }
-    //     None => panic!("Not ready for this lol"),
-    // };
+    let app_state_clone = app_state.clone();
+    let room_hint: String = params.get("room").unwrap_or(&String::from("none")).clone();
 
-    ws.on_upgrade(move |socket| handle_join(socket, app_state))
+    ws.on_upgrade(move |socket| handle_join(socket, app_state, room_hint))
 }
 
 async fn create_room(app_state: &Arc<AppState>) -> Arc<RwLock<Room>> {
     use rand::Rng;
-    let mut rng = rand::thread_rng();
 
     let mut room_map = app_state.rooms.write().await;
 
     let mut attempts: u8 = 0;
 
     loop {
-        let room_code: u32 = rng.gen_range(1000..9999);
+        let room_code: u32 = {
+            let mut trng = ThreadRng::default();
+            trng.gen_range(1000..9999)
+        };
 
         if !room_map.contains_key(&room_code) {
             let new_room = Arc::new(RwLock::new(Room { code: room_code }));
@@ -154,8 +145,21 @@ async fn room_task(state: Arc<RwLock<Room>>) {
     }
 }
 
-async fn handle_join(stream: WebSocket, app_state: Arc<AppState>) {
+async fn handle_join(stream: WebSocket, app_state: Arc<AppState>, room_hint: String) {
     let (mut sender, mut receiver) = stream.split();
+
+    let room = {
+        if room_hint.eq("new") {
+            create_room(&app_state.clone()).await
+        } else {
+            let code = room_hint.parse::<u32>().unwrap_or(0);
+            let room_map = app_state.rooms.read().await;
+            room_map.get(&code).unwrap().clone()
+        }
+    };
+
+    let actual_room_code = room.read().await.code;
+    tracing::info!("Joined room {}", actual_room_code);
 
     loop {
         sender.send(Message::Pong("hi".into())).await.unwrap();
