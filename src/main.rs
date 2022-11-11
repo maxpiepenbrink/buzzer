@@ -1,17 +1,20 @@
 use axum::{
     extract::{
         ws::{Message, WebSocket, WebSocketUpgrade},
-        Extension,
+        Extension, Query,
     },
+    http::StatusCode,
     response::{Html, IntoResponse},
     routing::get,
     Router,
 };
 use futures::{SinkExt, StreamExt};
+use tokio::sync::RwLock;
 
 use std::{
     borrow::BorrowMut,
     collections::HashMap,
+    fmt::Display,
     net::SocketAddr,
     sync::{
         atomic::{AtomicU32, Ordering},
@@ -28,10 +31,14 @@ struct User {
     name: String,
 }
 
+struct Room {
+    code: u32,
+}
+
 struct AppState {
     web_page_visits: AtomicU32,
     magic_counter: AtomicU32,
-    //rooms: Mutex<HashMap<u32, User>>,
+    rooms: RwLock<HashMap<u32, Arc<RwLock<Room>>>>,
 }
 
 #[tokio::main]
@@ -46,7 +53,7 @@ async fn main() {
     let shared_state = Arc::new(AppState {
         web_page_visits: AtomicU32::new(0),
         magic_counter: AtomicU32::new(0),
-        //rooms: Mutex::new(HashMap::new()),
+        rooms: RwLock::new(HashMap::new()),
     });
 
     let task_state = shared_state.clone();
@@ -80,19 +87,83 @@ async fn handler(Extension(state): Extension<Arc<AppState>>) -> String {
 
 async fn websocket_handler(
     ws: WebSocketUpgrade,
-    Extension(state): Extension<Arc<AppState>>,
+    Query(params): Query<HashMap<String, String>>,
+    Extension(app_state): Extension<Arc<AppState>>,
 ) -> impl IntoResponse {
-    ws.on_upgrade(|socket| websocket(socket, state))
+    // lil debugger helper :)
+    let stringified_params = params
+        .iter()
+        .map(|(a, b)| format!("{} -> {}", a, b))
+        .collect::<Vec<_>>()
+        .join(" -- ");
+    tracing::debug!("params: {}", stringified_params);
+
+    // let room: Arc<RwLock<Room>> = match params.get("room") {
+    //     Some(room_code) => {
+    //         if room_code.eq("new") {
+    //             // if the query param is "new", create a new room
+    //             create_room(&app_state)
+    //         } else {
+    //             // otherwise assume its a join code and try to find the room
+    //             let code = room_code.parse::<u32>().unwrap_or(0);
+    //             let room_map = app_state.rooms.blocking_read();
+    //             room_map.get(&code).unwrap().clone()
+    //         }
+    //     }
+    //     None => panic!("Not ready for this lol"),
+    // };
+
+    ws.on_upgrade(move |socket| handle_join(socket, app_state))
 }
 
-async fn websocket(stream: WebSocket, state: Arc<AppState>) {
+async fn create_room(app_state: &Arc<AppState>) -> Arc<RwLock<Room>> {
+    use rand::Rng;
+    let mut rng = rand::thread_rng();
+
+    let mut room_map = app_state.rooms.write().await;
+
+    let mut attempts: u8 = 0;
+
+    loop {
+        let room_code: u32 = rng.gen_range(1000..9999);
+
+        if !room_map.contains_key(&room_code) {
+            let new_room = Arc::new(RwLock::new(Room { code: room_code }));
+            room_map.insert(room_code, new_room.clone());
+
+            let room_state = new_room.clone();
+            tokio::spawn(async move { room_task(room_state).await });
+
+            return new_room;
+        }
+
+        attempts += 1;
+        if attempts > 100 {
+            panic!("Couldn't create a new room! This is unexpected and we should increase our key space or use a smarter room generator.")
+        }
+        // keep seeking an unused room code
+    }
+}
+
+async fn room_task(state: Arc<RwLock<Room>>) {
+    let code = { state.read().await.code };
+
+    loop {
+        tokio::time::sleep(tokio::time::Duration::from_millis(5000)).await;
+        tracing::info!("Room {} is thinking...", code)
+    }
+}
+
+async fn handle_join(stream: WebSocket, app_state: Arc<AppState>) {
     let (mut sender, mut receiver) = stream.split();
 
     loop {
-        sender
-            .send(Message::Text(String::from("Tock...")))
-            .await
-            .unwrap();
+        sender.send(Message::Pong("hi".into())).await.unwrap();
+        // sender
+        //     .send(Message::Text(String::from(r#"{ "msg": "hey" }"#)))
+        //     .await
+        //     .unwrap();
+
         tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await
     }
 }

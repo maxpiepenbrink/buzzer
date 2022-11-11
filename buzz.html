@@ -3,32 +3,34 @@
 
 <head>
     <meta charset="UTF-8">
-    <title>WebSocket Chat</title>
+    <title>Buzzer</title>
 </head>
 
 <body>
-    <h1>WebSocket Chat Example</h1>
+    <h1>Buzzer Beta</h1>
 
-    <input id="username" style="display:block; width:100px; box-sizing: border-box" type="text" placeholder="username">
-    <button id="join-chat" type="button">Join Chat</button>
+    <input id="roomcode" style="display:block; width:100px; box-sizing: border-box" type="text" placeholder="room code">
+    <button id="join-room" type="button">Join Room</button>
+    <button id="create-room" type="button">Create Room</button>
     <textarea id="chat" style="display:block; width:600px; height:400px; box-sizing: border-box" cols="30"
         rows="10"></textarea>
     <input id="input" style="display:block; width:600px; box-sizing: border-box" type="text" placeholder="chat">
 
     <script>
-        const username = document.querySelector("#username");
-        const join_btn = document.querySelector("#join-chat");
+        const roomcode = document.querySelector("#roomcode");
+        const join_btn = document.querySelector("#join-room");
+        const create_btn = document.querySelector("#create-room");
         const textarea = document.querySelector("#chat");
         const input = document.querySelector("#input");
 
-        join_btn.addEventListener("click", function (e) {
+        create_btn.addEventListener("click", function (e) {
             this.disabled = true;
 
-            const websocket = new WebSocket("ws://localhost:8080/buzzer");
+            const websocket = new WebSocket("ws://localhost:8080/buzzer?room=new");
 
             websocket.onopen = function () {
                 console.log("connection opened");
-                websocket.send(username.value);
+                websocket.send(roomcode.value);
             }
 
             const btn = this;
@@ -40,7 +42,39 @@
 
             websocket.onmessage = function (e) {
                 console.log("received message: " + e.data);
-                textarea.value += e.data + "\r\n";
+                let payload = JSON.parse(e.data);
+                textarea.value += payload.msg + "\r\n";
+            }
+
+            input.onkeydown = function (e) {
+                if (e.key == "Enter") {
+                    websocket.send(input.value);
+                    input.value = "";
+                }
+            }
+        });
+
+        join_btn.addEventListener("click", function (e) {
+            this.disabled = true;
+
+            const websocket = new WebSocket("ws://localhost:8080/buzzer?room=555");
+
+            websocket.onopen = function () {
+                console.log("connection opened");
+                websocket.send(roomcode.value);
+            }
+
+            const btn = this;
+
+            websocket.onclose = function () {
+                console.log("connection closed");
+                btn.disabled = false;
+            }
+
+            websocket.onmessage = function (e) {
+                console.log("received message: " + e.data);
+                let payload = JSON.parse(e.data);
+                textarea.value += payload.msg + "\r\n";
             }
 
             input.onkeydown = function (e) {
