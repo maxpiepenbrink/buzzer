@@ -135,6 +135,10 @@ async fn handle_participant(stream: WebSocket, app_state: Arc<AppState>, room_hi
         .await
         .unwrap();
 
+    // inform the client of their ID in the room, this is one of the few messages we send directly
+    let authority_msg = serde_json::to_string(&InformAuthority { your_id: my_id }).unwrap();
+    to_browser.send(Message::Text(authority_msg)).await.unwrap();
+
     loop {
         // wait on either a message from the browser or from the room broadcast
         let event: ParticipantEvent = tokio::select! {
@@ -214,10 +218,24 @@ struct Participant {
     name: String,
 }
 
+#[derive(Serialize, Deserialize)]
+enum RoomMode {
+    FirstToBuzz, // first one to successfully buzz transitions us to locked
+    BuzzerRace,  // everyone can buzz, and the order will be presented
+}
+
 #[derive(Serialize)]
 struct RoomState {
     room_id: u32,
     participants: HashMap<u32, Participant>,
+    room_captain: Option<u32>,
+    room_mode: RoomMode,
+    room_locked: bool,
+}
+
+#[derive(Serialize)]
+struct InformAuthority {
+    your_id: u32,
 }
 
 async fn start_room(
@@ -238,6 +256,9 @@ async fn start_room(
     let mut room_state = RoomState {
         participants: HashMap::new(),
         room_id: room_id,
+        room_captain: None,
+        room_mode: RoomMode::FirstToBuzz,
+        room_locked: true,
     };
 
     loop {
@@ -258,11 +279,36 @@ async fn start_room(
                         name: String::from("New Player"),
                     },
                 );
+
+                // check if we should assign this person the leader as they're
+                // the only one here
+                if room_state.participants.len() == 1 {
+                    room_state.room_captain = Some(id);
+                }
+
                 true
             }
             Some(RoomMessage::ParticipantQuit(id)) => {
                 tracing::info!("Person quit! Id: {}", id);
                 room_state.participants.remove(&id);
+
+                // check if someone new should become captain
+                if let Some(captain_id) = room_state.room_captain {
+                    if id == captain_id {
+                        // new leader must be chosen!.. if there's anyone left
+                        if room_state.participants.len() > 0 {
+                            room_state.room_captain =
+                                Some(room_state.participants.iter().next().unwrap().0.clone());
+                        } else {
+                            room_state.room_captain = None;
+                        }
+                    }
+                    // no action to take
+                } else {
+                    // no leaders!
+                    room_state.room_captain = None;
+                }
+
                 true
             }
             Some(RoomMessage::ParticipantSetName(id, new_name)) => {
@@ -280,6 +326,7 @@ async fn start_room(
 
         if should_emit_state {
             let state_emission = serde_json::to_string(&room_state).unwrap();
+            tracing::debug!("New room state: {}", &state_emission);
             btx.send(RoomMessage::NewRoomState(Arc::new(state_emission)))
                 .unwrap();
         }
