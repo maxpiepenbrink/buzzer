@@ -10,7 +10,7 @@ use axum::{
 };
 use futures::{Future, SinkExt, StreamExt};
 use rand::rngs::ThreadRng;
-use tokio::sync::RwLock;
+use tokio::sync::{mpsc::error::TryRecvError, RwLock};
 
 use std::{
     borrow::BorrowMut,
@@ -39,7 +39,18 @@ struct Room {
 struct AppState {
     web_page_visits: AtomicU32,
     magic_counter: AtomicU32,
-    rooms: RwLock<HashMap<u32, Arc<RwLock<Room>>>>,
+
+    player_id_counter: AtomicU32,
+
+    rooms: RwLock<
+        HashMap<
+            u32,
+            (
+                tokio::sync::mpsc::Sender<RoomMessage>,
+                tokio::sync::broadcast::Receiver<RoomMessage>,
+            ),
+        >,
+    >,
 }
 
 #[tokio::main]
@@ -54,6 +65,7 @@ async fn main() {
     let shared_state = Arc::new(AppState {
         web_page_visits: AtomicU32::new(0),
         magic_counter: AtomicU32::new(0),
+        player_id_counter: AtomicU32::new(1000),
         rooms: RwLock::new(HashMap::new()),
     });
 
@@ -99,76 +111,147 @@ async fn websocket_handler(
         .join(" -- ");
     tracing::debug!("params: {}", stringified_params);
 
-    let app_state_clone = app_state.clone();
     let room_hint: String = params.get("room").unwrap_or(&String::from("none")).clone();
 
-    ws.on_upgrade(move |socket| handle_join(socket, app_state, room_hint))
+    ws.on_upgrade(move |socket| handle_participant(socket, app_state, room_hint))
 }
 
-async fn create_room(app_state: &Arc<AppState>) -> Arc<RwLock<Room>> {
-    use rand::Rng;
+async fn handle_participant(stream: WebSocket, app_state: Arc<AppState>, room_hint: String) {
+    let (mut to_browser, mut from_browser) = stream.split();
 
-    let mut room_map = app_state.rooms.write().await;
+    tracing::info!("Room hint received: {}", room_hint);
 
-    let mut attempts: u8 = 0;
+    let (to_room, mut from_room) = match room_hint.as_ref() {
+        "new" => {
+            use tokio::sync::broadcast;
+            use tokio::sync::mpsc;
+            // broadcast tx/rx pair, brx is to be cloned by all participants and will drive their receiving event loop
+            // while btx is for this room to send messages out to everyone
+            let (btx, mut brx) = broadcast::channel::<RoomMessage>(100);
+            // stx is to be cloned for individual participants to send back into the room
+            let (stx, mut srx) = mpsc::channel::<RoomMessage>(100);
 
-    loop {
-        let room_code: u32 = {
-            let mut trng = ThreadRng::default();
-            trng.gen_range(1000..9999)
-        };
+            // spawn the room
+            {
+                let stx = stx.clone();
+                let btx = btx.clone();
+                tokio::spawn(async { start_room(btx, srx, stx).await });
+            }
 
-        if !room_map.contains_key(&room_code) {
-            let new_room = Arc::new(RwLock::new(Room { code: room_code }));
-            room_map.insert(room_code, new_room.clone());
+            // store the tx/rx channels for future participants
+            let mut app_state_rooms = app_state.rooms.write().await;
+            app_state_rooms.insert(666, (stx.clone(), btx.subscribe()));
 
-            let room_state = new_room.clone();
-            tokio::spawn(async move { room_task(room_state).await });
-
-            return new_room;
+            (stx.clone(), btx.subscribe())
         }
-
-        attempts += 1;
-        if attempts > 100 {
-            panic!("Couldn't create a new room! This is unexpected and we should increase our key space or use a smarter room generator.")
-        }
-        // keep seeking an unused room code
-    }
-}
-
-async fn room_task(state: Arc<RwLock<Room>>) {
-    let code = { state.read().await.code };
-
-    loop {
-        tokio::time::sleep(tokio::time::Duration::from_millis(5000)).await;
-        tracing::info!("Room {} is thinking...", code)
-    }
-}
-
-async fn handle_join(stream: WebSocket, app_state: Arc<AppState>, room_hint: String) {
-    let (mut sender, mut receiver) = stream.split();
-
-    let room = {
-        if room_hint.eq("new") {
-            create_room(&app_state.clone()).await
-        } else {
-            let code = room_hint.parse::<u32>().unwrap_or(0);
-            let room_map = app_state.rooms.read().await;
-            room_map.get(&code).unwrap().clone()
+        _ => {
+            todo!()
         }
     };
 
-    let actual_room_code = room.read().await.code;
-    tracing::info!("Joined room {}", actual_room_code);
+    app_state.player_id_counter.fetch_add(1, Ordering::SeqCst);
+    let my_id: u32 = 1;
+
+    to_room
+        .send(RoomMessage::ParticipantJoined(my_id))
+        .await
+        .unwrap();
 
     loop {
-        sender.send(Message::Pong("hi".into())).await.unwrap();
-        // sender
-        //     .send(Message::Text(String::from(r#"{ "msg": "hey" }"#)))
-        //     .await
-        //     .unwrap();
+        tokio::select! {
+            Some(Ok(ws_message)) = from_browser.next() => {
+                if let Message::Text(message) = ws_message {
+                    let op: ClientOperation = serde_json::from_str(message.as_ref()).unwrap();
+                    tracing::info!("Received op: {:?}", op);
 
-        tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await
+                    match op.op.as_ref() {
+                        "set_name" => {
+                            to_room
+                                .send(RoomMessage::ParticipantSetName(my_id, op.value))
+                                .await
+                                .unwrap();
+                        }
+                        _ => panic!("unknown operation {}", op.op),
+                    };
+                }
+            },
+            Ok(room_message) = from_room.recv() => {
+                match room_message {
+                    RoomMessage::Ping => {
+                        to_browser
+                            .send(Message::Pong("!".into()))
+                            .await
+                            .unwrap();
+                    },
+                    _ => {}
+                };
+            }
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+enum RoomMessage {
+    Ping, // not for use by room participant tasks but also totally w/e if it does happen
+    ParticipantJoined(u32),
+    ParticipantSetName(u32, String),
+    NewRoomState(Arc<String>),
+}
+
+struct Participant {}
+
+use serde::{Deserialize, Serialize};
+use serde_json::Result;
+
+#[derive(Serialize, Deserialize, Debug)]
+struct ClientOperation {
+    op: String,
+    value: String,
+}
+
+async fn start_room(
+    btx: tokio::sync::broadcast::Sender<RoomMessage>,
+    mut srx: tokio::sync::mpsc::Receiver<RoomMessage>,
+    stx: tokio::sync::mpsc::Sender<RoomMessage>,
+) {
+    let ping_tx = stx.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(1));
+        loop {
+            interval.tick().await;
+            ping_tx.send(RoomMessage::Ping).await.unwrap();
+        }
+    });
+
+    let mut active_participants: HashMap<u32, Participant> = HashMap::new();
+
+    loop {
+        // drain all messages clients may have sent into the pending vector
+        // wait on either our heartbeat timer or a message to come in
+
+        let should_emit_state = match srx.recv().await {
+            Some(RoomMessage::Ping) => {
+                tracing::info!("Sending pings");
+                btx.send(RoomMessage::Ping).unwrap();
+                false
+            }
+            Some(RoomMessage::ParticipantJoined(id)) => {
+                tracing::info!("Person joined! Id: {}", id);
+                active_participants.insert(id, Participant {});
+                true
+            }
+            Some(RoomMessage::ParticipantSetName(id, new_name)) => {
+                tracing::info!("Set name: {} -> {}", id, new_name);
+                true
+            }
+            None | Some(RoomMessage::NewRoomState(_)) => {
+                panic!("Not handling this yet");
+            }
+        };
+
+        if (should_emit_state) {
+            // TODO: render json here and emit it via the NewRoomState event
+        }
     }
 }
 
