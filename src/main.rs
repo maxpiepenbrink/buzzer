@@ -15,6 +15,7 @@ use tokio::sync::{mpsc::error::TryRecvError, RwLock};
 use std::{
     borrow::BorrowMut,
     collections::HashMap,
+    error::Error,
     fmt::Display,
     net::SocketAddr,
     sync::{
@@ -116,6 +117,12 @@ async fn websocket_handler(
     ws.on_upgrade(move |socket| handle_participant(socket, app_state, room_hint))
 }
 
+enum ParticipantEvent {
+    FromBrowser(String),
+    FromRoom(RoomMessage),
+    NoAction,
+}
+
 async fn handle_participant(stream: WebSocket, app_state: Arc<AppState>, room_hint: String) {
     let (mut to_browser, mut from_browser) = stream.split();
 
@@ -123,6 +130,7 @@ async fn handle_participant(stream: WebSocket, app_state: Arc<AppState>, room_hi
 
     let (to_room, mut from_room) = match room_hint.as_ref() {
         "new" => {
+            // create a new room and join it
             use tokio::sync::broadcast;
             use tokio::sync::mpsc;
             // broadcast tx/rx pair, brx is to be cloned by all participants and will drive their receiving event loop
@@ -135,7 +143,7 @@ async fn handle_participant(stream: WebSocket, app_state: Arc<AppState>, room_hi
             {
                 let stx = stx.clone();
                 let btx = btx.clone();
-                tokio::spawn(async { start_room(btx, srx, stx).await });
+                tokio::spawn(async { start_room(btx, srx, stx, 666).await });
             }
 
             // store the tx/rx channels for future participants
@@ -145,12 +153,16 @@ async fn handle_participant(stream: WebSocket, app_state: Arc<AppState>, room_hi
             (stx.clone(), btx.subscribe())
         }
         _ => {
-            todo!()
+            // parse the room hint as a u32 and try to find & join that room
+            let code = room_hint.parse::<u32>().unwrap_or(0);
+            let room_map = app_state.rooms.read().await;
+            let (stx, btx) = room_map.get(&code).unwrap();
+
+            (stx.clone(), btx.resubscribe())
         }
     };
 
-    app_state.player_id_counter.fetch_add(1, Ordering::SeqCst);
-    let my_id: u32 = 1;
+    let my_id = app_state.player_id_counter.fetch_add(1, Ordering::SeqCst);
 
     to_room
         .send(RoomMessage::ParticipantJoined(my_id))
@@ -158,50 +170,72 @@ async fn handle_participant(stream: WebSocket, app_state: Arc<AppState>, room_hi
         .unwrap();
 
     loop {
-        tokio::select! {
+        // wait on either a message from the browser or from the room broadcast
+        let event: ParticipantEvent = tokio::select! {
             Some(Ok(ws_message)) = from_browser.next() => {
                 if let Message::Text(message) = ws_message {
-                    let op: ClientOperation = serde_json::from_str(message.as_ref()).unwrap();
-                    tracing::info!("Received op: {:?}", op);
-
-                    match op.op.as_ref() {
-                        "set_name" => {
-                            to_room
-                                .send(RoomMessage::ParticipantSetName(my_id, op.value))
-                                .await
-                                .unwrap();
-                        }
-                        _ => panic!("unknown operation {}", op.op),
-                    };
+                    ParticipantEvent::FromBrowser(message)
+                } else {
+                    ParticipantEvent::NoAction
                 }
             },
             Ok(room_message) = from_room.recv() => {
-                match room_message {
-                    RoomMessage::Ping => {
-                        to_browser
-                            .send(Message::Pong("!".into()))
+                ParticipantEvent::FromRoom(room_message)
+            }
+        };
+
+        // handling the events inside of a macro is cumbersome for IDE reasons so wrapping them in varaints
+        // and pulling the mout here is a big maintenance help
+        match event {
+            ParticipantEvent::FromBrowser(message) => {
+                let op: ClientOperation = serde_json::from_str(message.as_ref()).unwrap();
+                tracing::info!("Received op: {:?}", op);
+
+                match op.op.as_ref() {
+                    "set_name" => {
+                        to_room
+                            .send(RoomMessage::ParticipantSetName(my_id, op.value))
                             .await
                             .unwrap();
-                    },
-                    _ => {}
+                    }
+                    _ => panic!("unknown operation {}", op.op),
                 };
             }
+            ParticipantEvent::FromRoom(room_message) => {
+                if let Err(_) = match room_message {
+                    RoomMessage::Ping => to_browser.send(Message::Pong("!".into())).await,
+                    RoomMessage::NewRoomState(new_state) => {
+                        to_browser
+                            .send(Message::Text(String::from(new_state.as_ref())))
+                            .await
+                    }
+                    _ => Ok(()),
+                } {
+                    break; // quit the main loop so we can clean up and leave as eleganty as possible
+                }
+            }
+            ParticipantEvent::NoAction => {}
         }
     }
+
+    tracing::info!("Cleaning up player {}", my_id);
+    // clean up on our way out
+    to_room
+        .send(RoomMessage::ParticipantQuit(my_id))
+        .await
+        .unwrap();
 }
 
 #[derive(Clone, Debug)]
 enum RoomMessage {
     Ping, // not for use by room participant tasks but also totally w/e if it does happen
     ParticipantJoined(u32),
+    ParticipantQuit(u32),
     ParticipantSetName(u32, String),
     NewRoomState(Arc<String>),
 }
 
-struct Participant {}
-
 use serde::{Deserialize, Serialize};
-use serde_json::Result;
 
 #[derive(Serialize, Deserialize, Debug)]
 struct ClientOperation {
@@ -209,10 +243,22 @@ struct ClientOperation {
     value: String,
 }
 
+#[derive(Serialize)]
+struct Participant {
+    name: String,
+}
+
+#[derive(Serialize)]
+struct RoomState {
+    room_id: u32,
+    participants: HashMap<u32, Participant>,
+}
+
 async fn start_room(
     btx: tokio::sync::broadcast::Sender<RoomMessage>,
     mut srx: tokio::sync::mpsc::Receiver<RoomMessage>,
     stx: tokio::sync::mpsc::Sender<RoomMessage>,
+    room_id: u32,
 ) {
     let ping_tx = stx.clone();
     tokio::spawn(async move {
@@ -223,7 +269,10 @@ async fn start_room(
         }
     });
 
-    let mut active_participants: HashMap<u32, Participant> = HashMap::new();
+    let mut room_state = RoomState {
+        participants: HashMap::new(),
+        room_id: room_id,
+    };
 
     loop {
         // drain all messages clients may have sent into the pending vector
@@ -231,26 +280,42 @@ async fn start_room(
 
         let should_emit_state = match srx.recv().await {
             Some(RoomMessage::Ping) => {
-                tracing::info!("Sending pings");
+                //tracing::info!("Sending pings");
                 btx.send(RoomMessage::Ping).unwrap();
                 false
             }
             Some(RoomMessage::ParticipantJoined(id)) => {
                 tracing::info!("Person joined! Id: {}", id);
-                active_participants.insert(id, Participant {});
+                room_state.participants.insert(
+                    id,
+                    Participant {
+                        name: String::from("New Player"),
+                    },
+                );
+                true
+            }
+            Some(RoomMessage::ParticipantQuit(id)) => {
+                tracing::info!("Person quit! Id: {}", id);
+                room_state.participants.remove(&id);
                 true
             }
             Some(RoomMessage::ParticipantSetName(id, new_name)) => {
                 tracing::info!("Set name: {} -> {}", id, new_name);
+                if let Some(player) = room_state.participants.get_mut(&id) {
+                    player.name = new_name;
+                }
                 true
             }
-            None | Some(RoomMessage::NewRoomState(_)) => {
+            Some(RoomMessage::NewRoomState(_)) => false, // these are meant for clients
+            None => {
                 panic!("Not handling this yet");
             }
         };
 
-        if (should_emit_state) {
-            // TODO: render json here and emit it via the NewRoomState event
+        if should_emit_state {
+            let state_emission = serde_json::to_string(&room_state).unwrap();
+            btx.send(RoomMessage::NewRoomState(Arc::new(state_emission)))
+                .unwrap();
         }
     }
 }

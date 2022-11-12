@@ -10,9 +10,11 @@
     <h1>Buzzer Beta</h1>
 
     <input id="roomcode" style="display:block; width:100px; box-sizing: border-box" type="text" placeholder="room code">
-    <input id="name" style="display:block; width:100px; box-sizing: border-box" type="text" placeholder="name">
+    <input id="name" style="display:block; width:100px; box-sizing: border-box" type="text" placeholder="name"
+        value="New Player">
     <button id="join-room" type="button">Join Room</button>
     <button id="create-room" type="button">Create Room</button>
+    <button id="send-name" type="button">Apply Name</button>
     <textarea id="chat" style="display:block; width:600px; height:400px; box-sizing: border-box" cols="30"
         rows="10"></textarea>
     <input id="input" style="display:block; width:600px; box-sizing: border-box" type="text" placeholder="chat">
@@ -24,6 +26,7 @@
         const create_btn = document.querySelector("#create-room");
         const textarea = document.querySelector("#chat");
         const input = document.querySelector("#input");
+        const send_name = document.querySelector("#send-name");
 
         create_btn.addEventListener("click", function (e) {
             this.disabled = true;
@@ -48,9 +51,17 @@
 
             websocket.onmessage = function (e) {
                 console.log("received message: " + e.data);
-                let payload = JSON.parse(e.data);
-                textarea.value += payload.msg + "\r\n";
+                //let payload = JSON.parse(e.data);
+                textarea.value += e.data + "\r\n";
             }
+
+            send_name.addEventListener("click", function (e) {
+                let set_name = {
+                    op: "set_name",
+                    value: name.value
+                };
+                websocket.send(JSON.stringify(set_name));
+            })
 
             input.onkeydown = function (e) {
                 if (e.key == "Enter") {
@@ -67,8 +78,20 @@
 
             websocket.onopen = function () {
                 console.log("connection opened");
-                websocket.send(roomcode.value);
+                let set_name = {
+                    op: "set_name",
+                    value: name.value
+                };
+                websocket.send(JSON.stringify(set_name));
             }
+
+            send_name.addEventListener("click", function (e) {
+                let set_name = {
+                    op: "set_name",
+                    value: name.value
+                };
+                websocket.send(JSON.stringify(set_name));
+            })
 
             const btn = this;
 
@@ -79,8 +102,8 @@
 
             websocket.onmessage = function (e) {
                 console.log("received message: " + e.data);
-                let payload = JSON.parse(e.data);
-                textarea.value += payload.msg + "\r\n";
+                //let payload = JSON.parse(e.data);
+                textarea.value += e.data + "\r\n";
             }
 
             input.onkeydown = function (e) {
