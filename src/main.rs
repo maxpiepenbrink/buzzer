@@ -3,24 +3,19 @@ use axum::{
         ws::{Message, WebSocket, WebSocketUpgrade},
         Extension, Query,
     },
-    http::StatusCode,
     response::{Html, IntoResponse},
     routing::get,
     Router,
 };
-use futures::{Future, SinkExt, StreamExt};
-use rand::rngs::ThreadRng;
-use tokio::sync::{mpsc::error::TryRecvError, RwLock};
+use futures::{SinkExt, StreamExt};
+use tokio::sync::RwLock;
 
 use std::{
-    borrow::BorrowMut,
     collections::HashMap,
-    error::Error,
-    fmt::Display,
     net::SocketAddr,
     sync::{
         atomic::{AtomicU32, Ordering},
-        Arc, Mutex,
+        Arc,
     },
 };
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -28,19 +23,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 // everything in here lifts heavily from this example:
 // https://github.com/tokio-rs/axum/blob/main/examples/chat/src/main.rs
 
-struct User {
-    is_host: bool,
-    name: String,
-}
-
-struct Room {
-    code: u32,
-}
-
 struct AppState {
-    web_page_visits: AtomicU32,
-    magic_counter: AtomicU32,
-
     player_id_counter: AtomicU32,
 
     rooms: RwLock<
@@ -64,19 +47,8 @@ async fn main() {
         .init();
 
     let shared_state = Arc::new(AppState {
-        web_page_visits: AtomicU32::new(0),
-        magic_counter: AtomicU32::new(0),
         player_id_counter: AtomicU32::new(1000),
         rooms: RwLock::new(HashMap::new()),
-    });
-
-    let task_state = shared_state.clone();
-    tokio::spawn(async move {
-        loop {
-            task_state.magic_counter.fetch_add(1, Ordering::SeqCst);
-            //tracing::debug!("Tick...");
-            tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await
-        }
     });
 
     let app = Router::new()
@@ -91,12 +63,6 @@ async fn main() {
         .serve(app.into_make_service())
         .await
         .unwrap();
-}
-
-async fn handler(Extension(state): Extension<Arc<AppState>>) -> String {
-    let visits = state.web_page_visits.fetch_add(1, Ordering::SeqCst) + 1;
-
-    return format!("This site has been visited {} times", visits);
 }
 
 async fn websocket_handler(
@@ -135,9 +101,9 @@ async fn handle_participant(stream: WebSocket, app_state: Arc<AppState>, room_hi
             use tokio::sync::mpsc;
             // broadcast tx/rx pair, brx is to be cloned by all participants and will drive their receiving event loop
             // while btx is for this room to send messages out to everyone
-            let (btx, mut brx) = broadcast::channel::<RoomMessage>(100);
+            let (btx, _brx) = broadcast::channel::<RoomMessage>(100);
             // stx is to be cloned for individual participants to send back into the room
-            let (stx, mut srx) = mpsc::channel::<RoomMessage>(100);
+            let (stx, srx) = mpsc::channel::<RoomMessage>(100);
 
             // spawn the room
             {
@@ -185,7 +151,7 @@ async fn handle_participant(stream: WebSocket, app_state: Arc<AppState>, room_hi
         };
 
         // handling the events inside of a macro is cumbersome for IDE reasons so wrapping them in varaints
-        // and pulling the mout here is a big maintenance help
+        // and pulling them out here is a big maintenance help
         match event {
             ParticipantEvent::FromBrowser(message) => {
                 let op: ClientOperation = serde_json::from_str(message.as_ref()).unwrap();
