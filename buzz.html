@@ -4,7 +4,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <link rel="icon" type="image/x-icon" href="/favicon.ico">
+    <link rel="icon" type="image/x-icon" href="/buzzer.ico">
     <title>Buzzer</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.2/dist/css/bootstrap.min.css" rel="stylesheet"
         integrity="sha384-Zenh87qX5JnK2Jl0vWa8Ck2rdkQ2Bzep5IDxbcnCeuOxjzrPF/et3URy9Bv1WTRi" crossorigin="anonymous">
@@ -287,7 +287,7 @@
         leave_btn.addEventListener("click", on_leave);
 
         let connect_behavior = function (room_code) {
-            const websocket = decorate_socket(new WebSocket("ws://" + location.host + "/buzzer?room=" + room_code));
+            const websocket = decorate_socket(new WebSocket("wss://" + location.host + "/buzzer?room=" + room_code));
 
             client_state.current_websocket = websocket;
             client_state.connection_state = 1;

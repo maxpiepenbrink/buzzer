@@ -57,7 +57,7 @@ async fn main() {
         .route("/", get(index))
         .route("/buzzer", get(websocket_handler))
         .route("/media/bewoop.mp3", get(doot_sound))
-        .route("/favicon.ico", get(doot_sound))
+        .route("/buzzer.ico", get(doot_sound))
         .layer(Extension(shared_state));
 
     //let addr = SocketAddr::from(([0, 0, 0, 0], 8080));
