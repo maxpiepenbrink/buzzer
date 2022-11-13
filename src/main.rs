@@ -3,18 +3,21 @@ use axum::{
         ws::{Message, WebSocket, WebSocketUpgrade},
         Extension, Query,
     },
-    http::header,
-    response::AppendHeaders,
+    http::{Method, StatusCode},
     response::{Html, IntoResponse},
     routing::get,
     Router,
 };
-use futures::{SinkExt, StreamExt};
+use futures::{Future, SinkExt, StreamExt};
+use rand::{rngs::ThreadRng, Rng};
 use tokio::sync::RwLock;
+use tower::ServiceBuilder;
+use tower_http::cors::{Any, CorsLayer};
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     net::SocketAddr,
+    ops::Deref,
     sync::{
         atomic::{AtomicU32, Ordering},
         Arc,
@@ -53,11 +56,17 @@ async fn main() {
         rooms: RwLock::new(HashMap::new()),
     });
 
+    let cors = CorsLayer::new()
+        .allow_methods(vec![Method::GET])
+        .allow_origin(Any);
+
     let app = Router::new()
         .route("/", get(index))
         .route("/buzzer", get(websocket_handler))
+        .route("/room_exists", get(room_exists_handler))
         .route("/media/bewoop.mp3", get(doot_sound))
-        .route("/buzzer.ico", get(doot_sound))
+        .route("/buzzerico.ico", get(favico))
+        .layer(ServiceBuilder::new().layer(cors))
         .layer(Extension(shared_state));
 
     //let addr = SocketAddr::from(([0, 0, 0, 0], 8080));
@@ -94,10 +103,29 @@ enum ParticipantEvent {
     NoAction,
 }
 
+fn gen_room_id<T>(rooms: &HashMap<u32, T>) -> Option<u32> {
+    let mut rng = ThreadRng::default();
+    loop {
+        let try_room = rng.gen_range(1000..9999);
+        let mut tries = 20;
+        if rooms.contains_key(&try_room) {
+            tries -= 1;
+        }
+
+        if tries <= 0 {
+            break;
+        };
+
+        return Some(try_room);
+    }
+
+    None
+}
+
 async fn handle_participant(stream: WebSocket, app_state: Arc<AppState>, room_hint: String) {
     let (mut to_browser, mut from_browser) = stream.split();
 
-    tracing::info!("Room hint received: {}", room_hint);
+    tracing::trace!("Room hint received: {}", room_hint);
 
     let (to_room, mut from_room) = match room_hint.as_ref() {
         "new" => {
@@ -110,16 +138,30 @@ async fn handle_participant(stream: WebSocket, app_state: Arc<AppState>, room_hi
             // stx is to be cloned for individual participants to send back into the room
             let (stx, srx) = mpsc::channel::<RoomMessage>(100);
 
+            // get a random room id
+            let room_id = match gen_room_id(&app_state.rooms.read().await.deref()) {
+                Some(new_id) => new_id,
+                None => {
+                    panic!("Somehow couldn't create a new room id, are we really being that used?")
+                }
+            };
+
             // spawn the room
             {
                 let stx = stx.clone();
                 let btx = btx.clone();
-                tokio::spawn(async { start_room(btx, srx, stx, 666).await });
+                let rooms_copy = app_state.clone();
+                tokio::spawn(async move {
+                    start_room(btx, srx, stx, room_id, async move {
+                        rooms_copy.rooms.write().await.remove(&room_id).unwrap();
+                    })
+                    .await
+                });
             }
 
             // store the tx/rx channels for future participants
             let mut app_state_rooms = app_state.rooms.write().await;
-            app_state_rooms.insert(666, (stx.clone(), btx.subscribe()));
+            app_state_rooms.insert(room_id, (stx.clone(), btx.subscribe()));
 
             (stx.clone(), btx.subscribe())
         }
@@ -129,6 +171,7 @@ async fn handle_participant(stream: WebSocket, app_state: Arc<AppState>, room_hi
             let room_map = app_state.rooms.read().await;
             let (stx, btx) = room_map.get(&code).unwrap();
 
+            tracing::info!("room count: {}", room_map.len());
             (stx.clone(), btx.resubscribe())
         }
     };
@@ -291,9 +334,10 @@ async fn start_room(
     mut srx: tokio::sync::mpsc::Receiver<RoomMessage>,
     stx: tokio::sync::mpsc::Sender<RoomMessage>,
     room_id: u32,
+    on_cleanup: impl Future<Output = ()>,
 ) {
     let ping_tx = stx.clone();
-    tokio::spawn(async move {
+    let ping_task = tokio::spawn(async move {
         let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(1));
         loop {
             interval.tick().await;
@@ -310,6 +354,7 @@ async fn start_room(
         activated_buzzers: vec![],
     };
 
+    tracing::info!("Starting room {}", room_state.room_id);
     loop {
         // drain all messages clients may have sent into the pending vector
         // wait on either our heartbeat timer or a message to come in
@@ -457,7 +502,15 @@ async fn start_room(
             btx.send(RoomMessage::NewRoomState(Arc::new(state_emission)))
                 .unwrap();
         }
+
+        if room_state.participants.len() == 0 {
+            break;
+        };
     }
+
+    tracing::info!("Cleaning up room {}", room_state.room_id);
+    ping_task.abort();
+    on_cleanup.await;
 }
 
 // Include utf-8 file at **compile** time.
@@ -471,4 +524,31 @@ async fn doot_sound() -> &'static [u8] {
 
 async fn favico() -> &'static [u8] {
     std::include_bytes!("../deployed_media/ffxiv-logo.ico")
+}
+
+async fn room_exists_handler(
+    Query(params): Query<HashMap<String, String>>,
+    Extension(app_state): Extension<Arc<AppState>>,
+) -> StatusCode {
+    tracing::info!("room exists called");
+    if let Some(room_id_str) = params.get("room_id") {
+        tracing::info!("room exists check {}", room_id_str);
+        if let Ok(room_id) = str::parse::<u32>(room_id_str) {
+            let rooms = app_state.rooms.read().await;
+            if rooms.contains_key(&room_id) {
+                return StatusCode::OK;
+            }
+        }
+    }
+
+    let current_rooms = app_state.rooms.read().await;
+    current_rooms.keys().for_each(|room| {
+        tracing::info!("room {}", room);
+    });
+    tracing::info!(
+        "room exists check fail, room count: {}",
+        current_rooms.len()
+    );
+
+    StatusCode::NOT_FOUND
 }
