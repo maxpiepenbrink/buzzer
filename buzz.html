@@ -4,6 +4,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="icon" type="image/x-icon" href="/favicon.ico">
     <title>Buzzer</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.2/dist/css/bootstrap.min.css" rel="stylesheet"
         integrity="sha384-Zenh87qX5JnK2Jl0vWa8Ck2rdkQ2Bzep5IDxbcnCeuOxjzrPF/et3URy9Bv1WTRi" crossorigin="anonymous">
@@ -14,41 +15,61 @@
         integrity="sha384-OERcA2EqjJCMA+/3y+gxIOqMEjwtxJY7qPCqsdltbNJuaOe923+mo//f6V8Qbsw3"
         crossorigin="anonymous"></script>
 
+    <audio id="sfx-buzzer" src="media/bewoop.mp3" preload="auto"></audio>
+
     <div class="container">
         <div class="row justify-content-md-center">
-            <div class="col-md-auto">
+            <div class="col-fluid">
                 <div class="container border border-3 shadow-sm p-3 mb-5 bg-body rounded">
-                    <h1>Buzzer Beta!</h1>
-                    <div class="input-group mb-3">
-                        <input id="roomcode" class="form-control" type="text" placeholder="room code">
-                        <button class="btn btn-outline-secondary" id="join-room" type="button">Join Room</button>
-                        <button class="btn btn-outline-secondary" id="create-room" type="button">Create Room</button>
-                        <button class="btn btn-outline-secondary" id="leave-room" type="button">Leave Room</button>
-                    </div>
-                    <div class="input-group mb-3">
-                        <button class="btn btn-outline-primary" id="send-name" type="button">Set Display Name</button>
-                        <input id="name" type="text" class="form-control" placeholder="Display Name"
-                            aria-label="Username" aria-describedby="basic-addon1" value="New Player">
+                    <h1>Buzzer Beta! <button class="btn btn-primary" type="button" data-bs-toggle="collapse"
+                            data-bs-target="#collapseExample" aria-expanded="false" aria-controls="collapseExample">
+                            Toggle Options
+                        </button></h1>
+
+                    <div class=".collapse show" id="collapseExample">
+                        <div class="input-group mb-3">
+                            <input id="roomcode" class="form-control" type="text" placeholder="room code">
+                            <button class="btn btn-outline-secondary" id="join-room" type="button">Join Room</button>
+                            <button class="btn btn-outline-secondary" id="create-room" type="button">Create
+                                Room</button>
+                            <button class="btn btn-outline-secondary" id="leave-room" type="button" disabled>Leave
+                                Room</button>
+                        </div>
+                        <div class="input-group mb-3">
+                            <input id="name" type="text" class="form-control" placeholder="Display Name"
+                                aria-label="Username" aria-describedby="basic-addon1" value="New Player">
+                            <button class="btn btn-outline-primary" id="send-name" type="button">Set Name</button>
+                        </div>
+                        <div class="row-cols-2">
+                            <div class="col">
+                                <div class="input-group mb-3">
+                                    <label for="buzzer-volume" class="form-label">Buzzer Volume 🔊</label>
+                                    <input type="range" class="form-range" id="buzzer-volume">
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
 
             <div class="col-md-auto">
                 <div class="container border border-3 shadow-sm p-3 mb-5 bg-body rounded">
-                    <h3>Admin Controls</h3>
-                    <div class="form-check form-switch admin-button">
+                    <h3>Controls</h3>
+                    <button class="btn btn-outline-primary" id="hit-buzzer" type="button" disabled>BUZZER!</button>
+                    <div class="form-check form-switch">
                         <input class="form-check-input" type="checkbox" role="switch" id="admin_buzzer_lock" disabled>
-                        <label class="form-check-label" for="flexSwitchCheckDefault">Buzzer Lock 🔒</label>
+                        <label class="form-check-label" for="flexSwitchCheckDefault">Buzzer Lock (⭐ only)</label>
                     </div>
-                    <button class="btn btn-outline-secondary" id="reset-buzzers" type="button">Reset Buzzers</button>
-                    <div class="form-check admin-button">
+                    <button class="btn btn-outline-secondary admin" id="reset-buzzers" type="button" disabled>Reset
+                        Buzzers</button>
+                    <div class="form-check admin-button admin">
                         <input class="form-check-input" type="radio" name="flexRadioDefault" id="admin_first_to_buzz"
                             checked disabled>
                         <label class="form-check-label" for="flexRadioDefault2">
                             First To Buzz
                         </label>
                     </div>
-                    <div class="form-check admin-button">
+                    <div class="form-check admin-button admin">
                         <input class="form-check-input" type="radio" name="flexRadioDefault" id="admin_buzzer_race"
                             disabled>
                         <label class="form-check-label" for="flexRadioDefault2">
@@ -61,13 +82,6 @@
                 <div class="container border border-3 shadow-sm p-3 mb-5 bg-body rounded">
                     <h3>Players</h3>
                     <ul class="list-group" id="player-list-display">
-                        <li class="list-group-item">An item
-                            <span class="badge bg-primary rounded-pill">🔔</span>
-                        </li>
-                        <li class="list-group-item list-group-item-danger">A second item</li>
-                        <li class="list-group-item">A third item</li>
-                        <li class="list-group-item">A fourth item</li>
-                        <li class="list-group-item">And a fifth one</li>
                     </ul>
                 </div>
             </div>
@@ -93,12 +107,18 @@
         const admin_buzzer_lock = document.querySelector("#admin_buzzer_lock");
         const admin_first_to_buzz = document.querySelector("#admin_first_to_buzz");
         const admin_buzzer_race = document.querySelector("#admin_buzzer_race");
+        const admin_buzzer_reset = document.querySelector("#reset-buzzers");
+
+        const hit_buzzer = document.querySelector("#hit-buzzer");
+        const buzzer_volume = document.querySelector("#buzzer-volume");
+        const buzzer_sound = document.querySelector("#sfx-buzzer");
 
         const player_list = document.querySelector("#player-list-display");
 
         const active_when_unjoined = [join_btn, create_btn, roomcode];
         const active_when_joined = [leave_btn, send_name];
-        const admin_buttons = [admin_buzzer_lock, admin_first_to_buzz, admin_buzzer_race];
+        const admin_buttons = [admin_buzzer_lock, admin_first_to_buzz, admin_buzzer_race, admin_buzzer_reset];
+        const admin_containers = document.querySelectorAll(".admin");
 
         let decorate_socket = function (websocket) {
             websocket["update_name"] = function (new_name) {
@@ -107,6 +127,38 @@
                     value: new_name
                 };
                 websocket.send(JSON.stringify(set_name));
+            }
+
+            websocket["buzzer_hit"] = function () {
+                let buzzer_event = {
+                    op: "buzzer_hit",
+                    value: ""
+                }
+                websocket.send(JSON.stringify(buzzer_event));
+            }
+
+            websocket["reset_buzzers"] = function () {
+                let reset_event = {
+                    op: "reset_buzzers",
+                    value: ""
+                }
+                websocket.send(JSON.stringify(reset_event));
+            }
+
+            websocket["set_lock"] = function (is_locked) {
+                let lock_event = {
+                    op: "set_buzzer_lock",
+                    value: `${is_locked}`
+                }
+                websocket.send(JSON.stringify(lock_event));
+            }
+
+            websocket["set_mode"] = function (new_mode) {
+                let mode_event = {
+                    op: "set_mode",
+                    value: `${new_mode}`
+                }
+                websocket.send(JSON.stringify(mode_event));
             }
 
             return websocket
@@ -118,31 +170,76 @@
             my_id: -1,
             current_websocket: null,
             pending_messages: [],
+            prev_buzzer_count: 0, // when this increases we need to fire the buzzer
         };
 
         let update_room_state = function (state) {
             // set basic variables
             roomcode.value = state.room_id;
 
+            // can we buzz?
+            let has_buzzed = state.activated_buzzers.indexOf(client_state.my_id) > -1;
+            if (state.room_mode == "FirstToBuzz") {
+                hit_buzzer.disabled = state.room_locked || has_buzzed || state.activated_buzzers.length > 0;
+                admin_first_to_buzz.checked = true;
+            } else if (state.room_mode = "BuzzerRace") {
+                hit_buzzer.disabled = (state.room_locked || has_buzzed)
+                admin_buzzer_race.checked = true;
+            }
+
+            // admin buzzer stuff
+            admin_buzzer_lock.checked = state.room_locked;
+
             // if the captain status has changed then we wanna re-evaluate the disabled-ness of 
             // some buttons
             let captain = state.room_captain;
 
-            admin_buttons.map(x => x.disabled = captain != client_state.my_id);
+            let is_captain = captain == client_state.my_id;
+            admin_buttons.map(x => x.disabled = !is_captain);
+            admin_containers.forEach(x => {
+                if (is_captain) {
+                    x.style.display = "block";
+                } else {
+                    x.style.display = "none";
+                }
+            })
+
+            // any time the total activated buzzers increases we wanna play the sound
+            if (state.activated_buzzers.length > client_state.prev_buzzer_count) {
+                // fire buzzer noise
+                buzzer_sound.currentTime = 0.0;
+                buzzer_sound.play();
+            }
+
+            client_state.prev_buzzer_count = state.activated_buzzers.length;
 
             // show players
-            let new_player_html = Object.keys(state.participants).map(id => {
-                let name = state.participants[id].name;
-                if (id == client_state.my_id) {
-                    name += " (you)"
-                }
-                if (id == captain) {
-                    name = "⭐" + name;
-                }
-                //let badge = "";
-                let badge = `<span class="badge bg-primary rounded-pill">1</span>`;
-                return `<li class="list-group-item">${name} ${badge}</li>`;
-            }).join('');
+            let new_player_html = Object.keys(state.participants)
+                .map(id_str => {
+                    let name = state.participants[id_str].name;
+
+                    let id = parseInt(id_str);
+
+                    if (id == client_state.my_id) {
+                        name += " (you)"
+                    }
+                    if (id == captain) {
+                        name = "⭐" + name;
+                    }
+                    let badge = "";
+
+                    let buzzer_index = state.activated_buzzers.indexOf(id);
+                    if (buzzer_index > -1) {
+                        console.log(`room state: ${state.room_mode}`);
+                        // if the mode is first to buzz we can just show an alarm bell
+                        if (state.room_mode == "FirstToBuzz") {
+                            badge = `<span class="badge bg-primary rounded-pill">🔔</span>`;
+                        } else if (state.room_mode == "BuzzerRace") {
+                            badge = `<span class="badge bg-primary rounded-pill">🔔 #${buzzer_index + 1}</span>`;
+                        }
+                    }
+                    return `<li class="list-group-item">${name} ${badge}</li>`;
+                }).join('');
             player_list.innerHTML = new_player_html;
         }
 
@@ -173,7 +270,6 @@
                     } else if (msg["room_id"]) {
                         update_room_state(msg);
                     }
-
                 }
             }
 
@@ -191,7 +287,7 @@
         leave_btn.addEventListener("click", on_leave);
 
         let connect_behavior = function (room_code) {
-            const websocket = decorate_socket(new WebSocket("ws://localhost:8080/buzzer?room=" + room_code));
+            const websocket = decorate_socket(new WebSocket("ws://" + location.host + "/buzzer?room=" + room_code));
 
             client_state.current_websocket = websocket;
             client_state.connection_state = 1;
@@ -223,55 +319,62 @@
             connect_behavior(roomcode.value);
         });
 
+        let stored_name = localStorage.getItem("client_name");
+        if (stored_name != null) {
+            name_field.value = stored_name;
+        }
         send_name.addEventListener("click", function (e) {
+            localStorage.setItem("client_name", name_field.value);
             if (client_state.connection_state == 2) {
                 client_state.current_websocket.update_name(name_field.value);
             }
         })
 
-        /*
-        create_btn.addEventListener("click", function (e) {
-            this.disabled = true;
-
-            const websocket = new WebSocket("ws://localhost:8080/buzzer?room=new");
-
-            websocket.onopen = function () {
-                console.log("connection opened");
-                let set_name = {
-                    op: "set_name",
-                    value: name.value
-                };
-                websocket.send(JSON.stringify(set_name));
+        hit_buzzer.addEventListener("click", function (e) {
+            if (client_state.connection_state == 2) {
+                client_state.current_websocket.buzzer_hit();
             }
+        })
 
-            const btn = this;
-
-            websocket.onclose = function () {
-                console.log("connection closed");
-                btn.disabled = false;
+        admin_buzzer_reset.addEventListener("click", function (e) {
+            if (client_state.connection_state == 2) {
+                client_state.current_websocket.reset_buzzers();
             }
+        })
 
-            websocket.onmessage = function (e) {
-                console.log("received message: " + e.data);
-                //let payload = JSON.parse(e.data);
-                textarea.value += e.data + "\r\n";
+        admin_buzzer_lock.addEventListener("click", function (e) {
+            if (client_state.connection_state == 2) {
+                client_state.current_websocket.set_lock(admin_buzzer_lock.checked);
             }
+        })
 
-            send_name.addEventListener("click", function (e) {
-                let set_name = {
-                    op: "set_name",
-                    value: name.value
-                };
-                websocket.send(JSON.stringify(set_name));
-            })
+        admin_first_to_buzz.addEventListener("click", function (e) {
+            client_state.current_websocket.set_mode("first_to_buzz");
+        })
 
-            input.onkeydown = function (e) {
-                if (e.key == "Enter") {
-                    websocket.send(input.value);
-                    input.value = "";
-                }
-            }
-        }); */
+        admin_buzzer_race.addEventListener("click", function (e) {
+            client_state.current_websocket.set_mode("buzz_race");
+        })
+
+        Number.prototype.clamp = function (min, max) {
+            return Math.min(Math.max(this, min), max);
+        };
+
+        let stored_volume_str = parseInt(localStorage.getItem("buzzer_volume"));
+        if (stored_volume_str != null) {
+            let stored_volume = parseInt(stored_volume_str);
+            buzzer_volume.value = stored_volume.clamp(0, 100);
+            buzzer_sound.volume = buzzer_volume.value / 100.0;
+        }
+        buzzer_sound.volume = buzzer_volume.value / 100.0;
+        buzzer_volume.addEventListener("click", function (e) {
+            localStorage.setItem("buzzer_volume", buzzer_volume.value);
+            console.log(`volume: ${buzzer_volume.value}`);
+            buzzer_sound.currentTime = 0.0;
+            buzzer_sound.volume = buzzer_volume.value / 100.0;
+            buzzer_sound.play();
+        });
+
     </script>
 </body>
 

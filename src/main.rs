@@ -3,6 +3,8 @@ use axum::{
         ws::{Message, WebSocket, WebSocketUpgrade},
         Extension, Query,
     },
+    http::header,
+    response::AppendHeaders,
     response::{Html, IntoResponse},
     routing::get,
     Router,
@@ -11,7 +13,7 @@ use futures::{SinkExt, StreamExt};
 use tokio::sync::RwLock;
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     net::SocketAddr,
     sync::{
         atomic::{AtomicU32, Ordering},
@@ -54,9 +56,12 @@ async fn main() {
     let app = Router::new()
         .route("/", get(index))
         .route("/buzzer", get(websocket_handler))
+        .route("/media/bewoop.mp3", get(doot_sound))
+        .route("/favicon.ico", get(doot_sound))
         .layer(Extension(shared_state));
 
-    let addr = SocketAddr::from(([0, 0, 0, 0], 8080));
+    //let addr = SocketAddr::from(([0, 0, 0, 0], 8080));
+    let addr = SocketAddr::from(([0, 0, 0, 0], 7777));
     tracing::debug!("listening on {}", addr);
 
     axum::Server::bind(&addr)
@@ -168,6 +173,44 @@ async fn handle_participant(stream: WebSocket, app_state: Arc<AppState>, room_hi
                             .await
                             .unwrap();
                     }
+                    "buzzer_hit" => {
+                        to_room
+                            .send(RoomMessage::ParticipantBuzzed(my_id))
+                            .await
+                            .unwrap();
+                    }
+                    "reset_buzzers" => {
+                        to_room
+                            .send(RoomMessage::ResetBuzzers(my_id))
+                            .await
+                            .unwrap();
+                    }
+                    "set_buzzer_lock" => {
+                        let lock_state = match op.value.as_ref() {
+                            "true" => true,
+                            "false" => false,
+                            _ => false,
+                        };
+
+                        to_room
+                            .send(RoomMessage::SetLockState(my_id, lock_state))
+                            .await
+                            .unwrap();
+                    }
+                    "set_mode" => {
+                        let new_mode_opt = match op.value.as_ref() {
+                            "first_to_buzz" => Some(RoomMode::FirstToBuzz),
+                            "buzz_race" => Some(RoomMode::BuzzerRace),
+                            _ => None,
+                        };
+
+                        if let Some(new_mode) = new_mode_opt {
+                            to_room
+                                .send(RoomMessage::SetRoomMode(my_id, new_mode))
+                                .await
+                                .unwrap();
+                        }
+                    }
                     _ => panic!("unknown operation {}", op.op),
                 };
             }
@@ -202,7 +245,11 @@ enum RoomMessage {
     ParticipantJoined(u32),
     ParticipantQuit(u32),
     ParticipantSetName(u32, String),
+    ParticipantBuzzed(u32),
     NewRoomState(Arc<String>),
+    ResetBuzzers(u32),
+    SetLockState(u32, bool),
+    SetRoomMode(u32, RoomMode),
 }
 
 use serde::{Deserialize, Serialize};
@@ -218,7 +265,7 @@ struct Participant {
     name: String,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 enum RoomMode {
     FirstToBuzz, // first one to successfully buzz transitions us to locked
     BuzzerRace,  // everyone can buzz, and the order will be presented
@@ -231,6 +278,7 @@ struct RoomState {
     room_captain: Option<u32>,
     room_mode: RoomMode,
     room_locked: bool,
+    activated_buzzers: Vec<u32>,
 }
 
 #[derive(Serialize)]
@@ -258,7 +306,8 @@ async fn start_room(
         room_id: room_id,
         room_captain: None,
         room_mode: RoomMode::FirstToBuzz,
-        room_locked: true,
+        room_locked: false,
+        activated_buzzers: vec![],
     };
 
     loop {
@@ -309,6 +358,11 @@ async fn start_room(
                     room_state.room_captain = None;
                 }
 
+                // remove them from the buzz list if they're in it
+                if let Some(pos) = room_state.activated_buzzers.iter().position(|&r| r == id) {
+                    room_state.activated_buzzers.remove(pos);
+                }
+
                 true
             }
             Some(RoomMessage::ParticipantSetName(id, new_name)) => {
@@ -317,6 +371,79 @@ async fn start_room(
                     player.name = new_name;
                 }
                 true
+            }
+            Some(RoomMessage::ParticipantBuzzed(id)) => {
+                let buzzers = &mut room_state.activated_buzzers;
+
+                // we take no action if the room is locked
+                // we ignore buzzers that are already active
+                let needs_update: bool = if !buzzers.contains(&id) && !room_state.room_locked {
+                    match room_state.room_mode {
+                        RoomMode::FirstToBuzz => {
+                            // only the first person to buzz gets to buzz, and the room locks
+                            // immediately upon doing so
+                            if buzzers.is_empty() {
+                                buzzers.push(id);
+                                room_state.room_locked = true;
+                                true
+                            } else {
+                                false
+                            }
+                        }
+                        RoomMode::BuzzerRace => {
+                            // everyone can buzz!
+
+                            // conveniently, hashset insert returns true if the value was actually added and wasnt a dupe
+                            if buzzers.contains(&id) {
+                                false
+                            } else {
+                                buzzers.push(id);
+                                true
+                            }
+                        }
+                    }
+                } else {
+                    false // no state change needed
+                };
+
+                needs_update
+            }
+            Some(RoomMessage::ResetBuzzers(id)) => {
+                // only captains can reset buzzers
+                if let Some(captain_id) = room_state.room_captain {
+                    if captain_id == id {
+                        room_state.activated_buzzers.clear();
+                        true
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
+            }
+            Some(RoomMessage::SetLockState(id, state)) => {
+                if let Some(captain_id) = room_state.room_captain {
+                    if captain_id == id {
+                        room_state.room_locked = state;
+                        true
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
+            }
+            Some(RoomMessage::SetRoomMode(id, new_mode)) => {
+                if let Some(captain_id) = room_state.room_captain {
+                    if captain_id == id {
+                        room_state.room_mode = new_mode;
+                        true
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
             }
             Some(RoomMessage::NewRoomState(_)) => false, // these are meant for clients
             None => {
@@ -336,4 +463,12 @@ async fn start_room(
 // Include utf-8 file at **compile** time.
 async fn index() -> Html<&'static str> {
     Html(std::include_str!("../buzz.html"))
+}
+
+async fn doot_sound() -> &'static [u8] {
+    std::include_bytes!("../deployed_media/bewoop.mp3")
+}
+
+async fn favico() -> &'static [u8] {
+    std::include_bytes!("../deployed_media/ffxiv-logo.ico")
 }
