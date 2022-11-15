@@ -2,6 +2,8 @@
 
 This is a simple all-in-one, self-contained, shared-state buzzer toolkit.
 
+See it in action in all it's glory at https://buzzer.goose.zone
+
 All it needs to do is run and have network I/O, and preferably with HTTPS termination.
 
 `$ cargo run` is all you need, it's currently hard coded to listen on port 7777.
