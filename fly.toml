@@ -21,8 +21,10 @@ processes = []
   protocol = "tcp"
   script_checks = []
   [services.concurrency]
-    hard_limit = 25
-    soft_limit = 20
+    # these are artifically high since this toy project
+    # only supports a single-server architecture currently.
+    hard_limit = 3500
+    soft_limit = 3445
     type = "connections"
 
   [[services.ports]]
