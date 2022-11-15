@@ -12,13 +12,16 @@ In it's current form, this repo is a super quick and dirty personal weekend hack
 * One huge rust main.rs that is the serverside game state.
 * No tests!! None! No TDD! No nothing!
 
-Needless to say if this demands any more complexity, it'll be worth it to do a big refactoring cleanup, get code coverage going, etc.
+Needless to say if ever this demands any more complexity, it'll be worth it to do a big refactoring cleanup, get code coverage going, etc. Rust and javascript programmers alike: turn back, this is not a place of honor.
+
+As it stands, however, I don't think this will need much additional features and can languish in perpetuity as a little hack job that serves it's purpose.
 
 # Structure
 
-This architecture stands on two important "keepin' it simple" legs:
+This architecture stands on three important "keepin' it simple" legs:
 1. Almost all events flow to/from the client and server effectively flow in 1 very static cycle.
 2. All room state is fully public.
+3. Single server architecture, no matchmaking, token based server-routing, state-sharing fabric (redis/sql/whatever). Just one little server doing as much as it can (or bust).
 
 ## Diagram
 
