@@ -1,1 +1,92 @@
-<mxfile host="app.diagrams.net" modified="2022-11-11T06:09:37.789Z" agent="5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/107.0.0.0 Safari/537.36" etag="uNMkMoWPM6Azxy2yrxrj" version="20.5.1" type="device"><diagram id="4nx0NjBTZaAq222p4F6B" name="Page-1">zZNNT4QwEIZ/TY8mQHcVr4vrGo3JJhzca0NHWlMoKWUBf71Fpnxks4keTLyQ6TMfnXmnEJoU3cGwSrxqDopEAe8IfSBRdLcN3HcA/QjibTSC3Eg+onAGqfwEhJiXN5JDvQq0WisrqzXMdFlCZleMGaPbddi7VutbK5bDBUgzpi7pm+RW+CmCmT+BzIW/OQzQUzAfjKAWjOt2geie0MRobUer6BJQg3ZelzHv8Yp3asxAaX+SoI6754+X+ETPcdOmdbU5ng43WOXMVIMDu4YKbNj2aoJNyWEoFBC6a4W0kFYsG7ytW7tjwhbKnUJnYkkwFrqrvYaTAu7lgC7Amt6FYELkVcRXQ2/x3M47CL2wYqG/j2O49nwqPSvjDBTnF0JFF0K5aazMZMXcSP9Nr8393+nljvOj/fYt/ny6/wI=</diagram></mxfile>
+<mxfile host="65bd71144e">
+    <diagram id="4nx0NjBTZaAq222p4F6B" name="Page-1">
+        <mxGraphModel dx="705" dy="655" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="26" value="&lt;span&gt;JSON&lt;br&gt;&lt;br&gt;{ &quot;op&quot;: &quot;do_thing&quot;,&lt;/span&gt;&lt;br&gt;&lt;span&gt;&quot;value&quot;: &quot;blah&quot; }&lt;br&gt;&lt;br&gt;set name, click buzzer, etc.&lt;/span&gt;" style="shape=note;whiteSpace=wrap;html=1;backgroundOutline=1;darkOpacity=0.05;shadow=1;strokeWidth=1;" vertex="1" parent="1">
+                    <mxGeometry x="580" y="530" width="110" height="110" as="geometry"/>
+                </mxCell>
+                <mxCell id="33" value="" style="rounded=1;whiteSpace=wrap;html=1;shadow=1;strokeWidth=1;" vertex="1" parent="1">
+                    <mxGeometry x="330" y="470" width="170" height="300" as="geometry"/>
+                </mxCell>
+                <mxCell id="14" value="" style="rounded=1;whiteSpace=wrap;html=1;shadow=1;border-style=dashed;dashed=1;arcSize=4;" vertex="1" parent="1">
+                    <mxGeometry x="190" y="150" width="510" height="290" as="geometry"/>
+                </mxCell>
+                <mxCell id="4" value="1. check room is real" style="edgeStyle=orthogonalEdgeStyle;html=1;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" edge="1" parent="1" source="31" target="3">
+                    <mxGeometry x="0.3333" relative="1" as="geometry">
+                        <mxPoint x="270" y="580" as="sourcePoint"/>
+                        <mxPoint as="offset"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="6" value="2. send &quot;op&quot; payloads" style="edgeStyle=orthogonalEdgeStyle;html=1;entryX=0.5;entryY=1;entryDx=0;entryDy=0;exitX=1;exitY=0.5;exitDx=0;exitDy=0;" edge="1" parent="1" source="31" target="5">
+                    <mxGeometry x="0.3" relative="1" as="geometry">
+                        <mxPoint x="560" y="560" as="sourcePoint"/>
+                        <mxPoint as="offset"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="3" value="GET /room_exists?room_id=xxx" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+                    <mxGeometry x="210" y="360" width="120" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="15" value="3. send enum variants&lt;br&gt;into mpsc channel" style="edgeStyle=orthogonalEdgeStyle;html=1;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" edge="1" parent="1" source="5" target="8">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="21" style="edgeStyle=orthogonalEdgeStyle;html=1;exitX=-0.014;exitY=0.639;exitDx=0;exitDy=0;exitPerimeter=0;" edge="1" parent="1" source="5" target="30">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="400" y="470" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="22" value="4. continued" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" vertex="1" connectable="0" parent="21">
+                    <mxGeometry x="0.4351" y="-1" relative="1" as="geometry">
+                        <mxPoint x="1" y="-6" as="offset"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="5" value="room participant task (websocket)&lt;br&gt;(1 per player)" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+                    <mxGeometry x="500" y="350" width="120" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="20" value="4. broadcast whole&amp;nbsp;&lt;br&gt;room JSON state upon&amp;nbsp;&lt;br&gt;state mutation&lt;br&gt;(or request pings)" style="edgeStyle=orthogonalEdgeStyle;html=1;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="8" target="5">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="400" y="260"/>
+                            <mxPoint x="400" y="380"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="8" value="room task&lt;br&gt;(1 per room)" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+                    <mxGeometry x="500" y="230" width="120" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="18" style="edgeStyle=orthogonalEdgeStyle;html=1;entryX=1;entryY=0.5;entryDx=0;entryDy=0;exitX=1;exitY=0.5;exitDx=0;exitDy=0;" edge="1" parent="1" source="17" target="8">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="640" y="188"/>
+                            <mxPoint x="640" y="260"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="23" value="every 100ms" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" vertex="1" connectable="0" parent="18">
+                    <mxGeometry x="-0.0196" y="4" relative="1" as="geometry">
+                        <mxPoint as="offset"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="17" value="ping task" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+                    <mxGeometry x="515" y="170" width="90" height="35" as="geometry"/>
+                </mxCell>
+                <mxCell id="25" value="&lt;h1&gt;Rust Server&lt;/h1&gt;&lt;div&gt;axum (+ tower)&lt;/div&gt;&lt;div&gt;hosted on fly.io&lt;/div&gt;" style="text;html=1;strokeColor=none;fillColor=none;spacing=5;spacingTop=-20;whiteSpace=wrap;overflow=hidden;rounded=0;shadow=1;dashed=1;dashPattern=1 1;" vertex="1" parent="1">
+                    <mxGeometry x="200" y="160" width="190" height="120" as="geometry"/>
+                </mxCell>
+                <mxCell id="32" style="edgeStyle=orthogonalEdgeStyle;html=1;" edge="1" parent="1" source="30" target="31">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="30" value="apply room state json authoritative: disable buttons, render names, etc" style="rounded=0;whiteSpace=wrap;html=1;shadow=1;strokeWidth=1;" vertex="1" parent="1">
+                    <mxGeometry x="350" y="500" width="130" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="31" value="buttons clicked&lt;br&gt;(click buzzer, join room, change name, etc)" style="rounded=0;whiteSpace=wrap;html=1;shadow=1;strokeWidth=1;" vertex="1" parent="1">
+                    <mxGeometry x="350" y="590" width="130" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="34" value="&lt;h1&gt;Punished JS Frontend&lt;/h1&gt;&lt;div&gt;bootstrap + &quot;raw&quot; JS&lt;/div&gt;" style="text;html=1;strokeColor=none;fillColor=none;spacing=5;spacingTop=-20;whiteSpace=wrap;overflow=hidden;rounded=0;shadow=1;" vertex="1" parent="1">
+                    <mxGeometry x="340" y="660" width="150" height="100" as="geometry"/>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+</mxfile>
