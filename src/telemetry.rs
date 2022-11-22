@@ -13,7 +13,10 @@ use opentelemetry::{
     KeyValue,
 };
 use opentelemetry_otlp::WithExportConfig;
-use tonic::metadata::{MetadataKey, MetadataMap};
+use tonic::{
+    metadata::{MetadataKey, MetadataMap},
+    transport::ClientTlsConfig,
+};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, Registry};
 use url::Url;
 
@@ -62,7 +65,14 @@ pub fn init_tracer() -> Result<(), TraceError> {
                 .tonic()
                 .with_endpoint(endpoint.as_str())
                 .with_timeout(Duration::from_secs(3))
-                .with_metadata(metadata),
+                .with_metadata(metadata)
+                .with_tls_config(
+                    ClientTlsConfig::new().domain_name(
+                        endpoint
+                            .host_str()
+                            .expect("the specified endpoint should have a valid host"),
+                    ),
+                ),
         )
         .with_trace_config(
             trace::config()
