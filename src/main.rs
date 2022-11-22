@@ -9,10 +9,16 @@ use axum::{
     Router,
 };
 use futures::{Future, SinkExt, StreamExt};
+
 use rand::{rngs::ThreadRng, Rng};
 use tokio::sync::RwLock;
+
 use tower::ServiceBuilder;
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::{
+    cors::{Any, CorsLayer},
+    trace::TraceLayer,
+};
+use tracing::instrument;
 
 use std::{
     collections::HashMap,
@@ -23,7 +29,8 @@ use std::{
         Arc,
     },
 };
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+
+use opentelemetry::global;
 
 // everything in here lifts heavily from this example:
 // https://github.com/tokio-rs/axum/blob/main/examples/chat/src/main.rs
@@ -42,14 +49,11 @@ struct AppState {
     >,
 }
 
+mod telemetry;
+
 #[tokio::main]
 async fn main() {
-    tracing_subscriber::registry()
-        .with(tracing_subscriber::EnvFilter::new(
-            std::env::var("RUST_LOG").unwrap_or_else(|_| "buzzer=trace".into()),
-        ))
-        .with(tracing_subscriber::fmt::layer())
-        .init();
+    telemetry::init_tracer().expect("Tracing initialization failed");
 
     let shared_state = Arc::new(AppState {
         player_id_counter: AtomicU32::new(1000),
@@ -67,6 +71,7 @@ async fn main() {
         .route("/media/bewoop.mp3", get(doot_sound))
         .route("/buzzerico.ico", get(favico))
         .layer(ServiceBuilder::new().layer(cors))
+        .layer(ServiceBuilder::new().layer(TraceLayer::new_for_http()))
         .layer(Extension(shared_state));
 
     //let addr = SocketAddr::from(([0, 0, 0, 0], 8080));
@@ -77,6 +82,8 @@ async fn main() {
         .serve(app.into_make_service())
         .await
         .unwrap();
+
+    global::shutdown_tracer_provider();
 }
 
 async fn websocket_handler(
@@ -122,6 +129,7 @@ fn gen_room_id<T>(rooms: &HashMap<u32, T>) -> Option<u32> {
     None
 }
 
+#[instrument(level = "info", name = "buzzer::participant", skip(stream, app_state))]
 async fn handle_participant(stream: WebSocket, app_state: Arc<AppState>, room_hint: String) {
     let (mut to_browser, mut from_browser) = stream.split();
 
@@ -329,6 +337,7 @@ struct InformAuthority {
     your_id: u32,
 }
 
+#[instrument(level = "info", name = "buzzer::room", skip(btx, srx, stx, on_cleanup))]
 async fn start_room(
     btx: tokio::sync::broadcast::Sender<RoomMessage>,
     mut srx: tokio::sync::mpsc::Receiver<RoomMessage>,
@@ -526,11 +535,11 @@ async fn favico() -> &'static [u8] {
     std::include_bytes!("../deployed_media/ffxiv-logo.ico")
 }
 
+#[instrument(level = "info", name = "buzzer::check_room_exists", skip(app_state))]
 async fn room_exists_handler(
     Query(params): Query<HashMap<String, String>>,
     Extension(app_state): Extension<Arc<AppState>>,
 ) -> StatusCode {
-    tracing::info!("room exists called");
     if let Some(room_id_str) = params.get("room_id") {
         tracing::info!("room exists check {}", room_id_str);
         if let Ok(room_id) = str::parse::<u32>(room_id_str) {
@@ -540,15 +549,6 @@ async fn room_exists_handler(
             }
         }
     }
-
-    let current_rooms = app_state.rooms.read().await;
-    current_rooms.keys().for_each(|room| {
-        tracing::info!("room {}", room);
-    });
-    tracing::info!(
-        "room exists check fail, room count: {}",
-        current_rooms.len()
-    );
 
     StatusCode::NOT_FOUND
 }
