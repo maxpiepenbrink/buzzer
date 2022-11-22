@@ -3,6 +3,8 @@ FROM rust:1.65.0 as builder
 
 WORKDIR /usr/src/app
 
+RUN apt update && apt install -y protobuf-compiler
+
 COPY . .
 RUN cargo install --path .
 
