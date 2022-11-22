@@ -81,8 +81,7 @@ pub fn init_tracer() -> Result<(), TraceError> {
     // that impls `LookupSpan`
     let _subscriber = Registry::default()
         .with(tracing_subscriber::EnvFilter::new(
-            std::env::var("RUST_LOG")
-                .unwrap_or_else(|_| "trace,buzzer=info,tower_http=trace".into()),
+            std::env::var("RUST_LOG").unwrap_or_else(|_| "buzzer=info,tower_http=trace".into()),
         ))
         .with(tracing_subscriber::fmt::layer())
         .with(telemetry)
